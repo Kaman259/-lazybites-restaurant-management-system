@@ -1,0 +1,1 @@
+"""LazyBites Restaurant Management System backend."""
