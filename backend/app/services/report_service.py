@@ -12,12 +12,9 @@ from app.models.invoice import Invoice
 from app.models.order import Order
 from app.models.order_item import OrderItem
 from app.models.reservation import Reservation
-from app.services.settings_service import (
-    get_restaurant_settings,
-)
+from app.services.settings_service import get_restaurant_settings
 from app.utils.enums import (
     OrderStatus,
-    PaymentMethod,
     PaymentStatus,
     ReservationStatus,
 )
@@ -26,9 +23,7 @@ from app.utils.enums import (
 def money(value) -> Decimal:
     """Return a two-decimal monetary value."""
 
-    return Decimal(value or 0).quantize(
-        Decimal("0.01")
-    )
+    return Decimal(value or 0).quantize(Decimal("0.01"))
 
 
 def utc_database_range(
@@ -82,16 +77,39 @@ def get_dashboard_summary(
         timezone_name=settings_record.timezone,
     )
 
-    today_revenue = database.scalar(
-        select(
-            func.coalesce(
-                func.sum(Invoice.grand_total),
-                0,
+    paid_today = money(
+        database.scalar(
+            select(
+                func.coalesce(
+                    func.sum(Invoice.grand_total),
+                    0,
+                )
+            ).where(
+                Invoice.payment_status.in_(
+                    [
+                        PaymentStatus.PAID,
+                        PaymentStatus.REFUNDED,
+                    ]
+                ),
+                Invoice.paid_at >= utc_start,
+                Invoice.paid_at < utc_end,
             )
-        ).where(
-            Invoice.payment_status == PaymentStatus.PAID,
-            Invoice.paid_at >= utc_start,
-            Invoice.paid_at < utc_end,
+        )
+    )
+
+    refunded_today = money(
+        database.scalar(
+            select(
+                func.coalesce(
+                    func.sum(Invoice.grand_total),
+                    0,
+                )
+            ).where(
+                Invoice.payment_status
+                == PaymentStatus.REFUNDED,
+                Invoice.refunded_at >= utc_start,
+                Invoice.refunded_at < utc_end,
+            )
         )
     )
 
@@ -143,7 +161,9 @@ def get_dashboard_summary(
     )
 
     return {
-        "today_revenue": money(today_revenue),
+        "today_revenue": money(
+            paid_today - refunded_today
+        ),
         "today_orders": today_orders or 0,
         "pending_orders": pending_orders or 0,
         "active_reservations": (
@@ -168,6 +188,11 @@ def get_reports(
         end_date=end_date,
         timezone_name=settings_record.timezone,
     )
+
+    received_payment_statuses = [
+        PaymentStatus.PAID,
+        PaymentStatus.REFUNDED,
+    ]
 
     paid_invoice_count = database.scalar(
         select(func.count(Invoice.id)).where(
@@ -195,6 +220,16 @@ def get_reports(
         )
     ) or 0
 
+    received_invoice_count = database.scalar(
+        select(func.count(Invoice.id)).where(
+            Invoice.payment_status.in_(
+                received_payment_statuses
+            ),
+            Invoice.paid_at >= utc_start,
+            Invoice.paid_at < utc_end,
+        )
+    ) or 0
+
     gross_paid_revenue = money(
         database.scalar(
             select(
@@ -203,8 +238,9 @@ def get_reports(
                     0,
                 )
             ).where(
-                Invoice.payment_status
-                == PaymentStatus.PAID,
+                Invoice.payment_status.in_(
+                    received_payment_statuses
+                ),
                 Invoice.paid_at >= utc_start,
                 Invoice.paid_at < utc_end,
             )
@@ -256,8 +292,8 @@ def get_reports(
 
     average_paid_invoice = money(
         (
-            gross_paid_revenue / paid_invoice_count
-            if paid_invoice_count
+            gross_paid_revenue / received_invoice_count
+            if received_invoice_count
             else Decimal("0.00")
         )
     )
@@ -298,8 +334,9 @@ def get_reports(
             ),
         )
         .where(
-            Invoice.payment_status
-            == PaymentStatus.PAID,
+            Invoice.payment_status.in_(
+                received_payment_statuses
+            ),
             Invoice.payment_method.is_not(None),
             Invoice.paid_at >= utc_start,
             Invoice.paid_at < utc_end,
@@ -318,8 +355,9 @@ def get_reports(
         .join(Order, OrderItem.order_id == Order.id)
         .join(Invoice, Invoice.order_id == Order.id)
         .where(
-            Invoice.payment_status
-            == PaymentStatus.PAID,
+            Invoice.payment_status.in_(
+                received_payment_statuses
+            ),
             Invoice.paid_at >= utc_start,
             Invoice.paid_at < utc_end,
         )
