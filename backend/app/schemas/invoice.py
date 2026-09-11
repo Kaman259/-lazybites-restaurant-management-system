@@ -3,7 +3,12 @@
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+)
 
 from app.utils.enums import (
     DiscountType,
@@ -44,11 +49,16 @@ class InvoiceRefundUpdate(BaseModel):
 
     @field_validator("refund_reason")
     @classmethod
-    def clean_refund_reason(cls, value: str) -> str:
+    def clean_refund_reason(
+        cls,
+        value: str,
+    ) -> str:
         cleaned_value = value.strip()
 
         if not cleaned_value:
-            raise ValueError("Refund reason is required.")
+            raise ValueError(
+                "Refund reason is required."
+            )
 
         return cleaned_value
 
@@ -94,10 +104,14 @@ class InvoiceOrderResponse(BaseModel):
 
     id: int
     order_number: str
+    reservation_id: int | None
     order_type: OrderType
+
     customer: InvoiceCustomerResponse | None
     table: InvoiceTableResponse | None
+
     items: list[InvoiceOrderItemResponse]
+
     created_at: datetime
 
 
@@ -107,7 +121,14 @@ class InvoiceResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+
+    # Kept temporarily so existing frontend/tests that read
+    # invoice.order_id and invoice.order continue to work.
     order_id: int
+    order: InvoiceOrderResponse
+
+    orders: list[InvoiceOrderResponse]
+
     invoice_number: str
 
     subtotal: Decimal
@@ -129,5 +150,3 @@ class InvoiceResponse(BaseModel):
 
     created_at: datetime
     updated_at: datetime
-
-    order: InvoiceOrderResponse

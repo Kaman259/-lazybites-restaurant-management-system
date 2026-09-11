@@ -65,7 +65,14 @@ class Order(TimestampMixin, Base):
             "reservations.id",
             ondelete="SET NULL",
         ),
-        unique=True,
+        nullable=True,
+    )
+
+    invoice_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "invoices.id",
+            ondelete="RESTRICT",
+        ),
         nullable=True,
     )
 
@@ -139,7 +146,12 @@ class Order(TimestampMixin, Base):
 
     reservation: Mapped[Reservation | None] = relationship(
         "Reservation",
-        back_populates="order",
+        back_populates="orders",
+    )
+
+    invoice: Mapped[Invoice | None] = relationship(
+        "Invoice",
+        back_populates="orders",
     )
 
     created_by: Mapped[User] = relationship(
@@ -154,20 +166,29 @@ class Order(TimestampMixin, Base):
         cascade="all, delete-orphan",
     )
 
-    invoice: Mapped[Invoice | None] = relationship(
-        "Invoice",
-        back_populates="order",
-        uselist=False,
-    )
-
     __table_args__ = (
         Index("ix_orders_customer_id", "customer_id"),
         Index("ix_orders_table_id", "table_id"),
-        Index("ix_orders_created_by_user_id", "created_by_user_id"),
+        Index(
+            "ix_orders_reservation_id",
+            "reservation_id",
+        ),
+        Index(
+            "ix_orders_invoice_id",
+            "invoice_id",
+        ),
+        Index(
+            "ix_orders_created_by_user_id",
+            "created_by_user_id",
+        ),
         Index("ix_orders_order_type", "order_type"),
         Index("ix_orders_status", "status"),
         Index("ix_orders_created_at", "created_at"),
-        Index("ix_orders_table_status", "table_id", "status"),
+        Index(
+            "ix_orders_table_status",
+            "table_id",
+            "status",
+        ),
     )
 
     def __repr__(self) -> str:

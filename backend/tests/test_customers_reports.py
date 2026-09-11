@@ -69,9 +69,15 @@ def build_client(
     """Create an authenticated test client."""
 
     user = User(
-        firebase_uid=f"customer-report-{role.value}",
-        full_name=f"{role.value.title()} User",
-        email=f"{role.value.lower()}-report@example.com",
+        firebase_uid=(
+            f"customer-report-{role.value}"
+        ),
+        full_name=(
+            f"{role.value.title()} User"
+        ),
+        email=(
+            f"{role.value.lower()}-report@example.com"
+        ),
         role=role,
         is_active=True,
     )
@@ -142,50 +148,58 @@ def create_paid_order(
         customer_id=customer_id,
         table_id=None,
         reservation_id=None,
+        invoice_id=None,
         created_by_user_id=user.id,
         order_type=OrderType.TAKEAWAY,
         status=OrderStatus.COMPLETED,
         special_instructions=None,
         delivery_address=None,
-        completed_at=datetime.now(
-            timezone.utc
-        ).replace(tzinfo=None),
+        completed_at=(
+            datetime.now(timezone.utc)
+            .replace(tzinfo=None)
+        ),
     )
 
     database.add(order)
     database.flush()
 
-    database.add(
-        OrderItem(
-            order_id=order.id,
-            menu_item_id=menu_item.id,
-            item_name=menu_item.name,
-            unit_price=Decimal("200.00"),
-            quantity=2,
-            special_instruction=None,
-            line_total=Decimal("400.00"),
-        )
+    order_item = OrderItem(
+        order_id=order.id,
+        menu_item_id=menu_item.id,
+        item_name=menu_item.name,
+        unit_price=Decimal("200.00"),
+        quantity=2,
+        special_instruction=None,
+        line_total=Decimal("400.00"),
     )
 
-    database.add(
-        Invoice(
-            order_id=order.id,
-            invoice_number="INV-REPORT-1",
-            subtotal=Decimal("400.00"),
-            discount_type=DiscountType.NONE,
-            discount_value=Decimal("0.00"),
-            discount_amount=Decimal("0.00"),
-            gst_percentage=Decimal("5.00"),
-            gst_amount=Decimal("20.00"),
-            grand_total=Decimal("420.00"),
-            payment_method=PaymentMethod.UPI,
-            payment_status=PaymentStatus.PAID,
-            paid_at=datetime.now(
-                timezone.utc
-            ).replace(tzinfo=None),
-        )
+    database.add(order_item)
+
+    invoice = Invoice(
+        invoice_number="INV-REPORT-1",
+        subtotal=Decimal("400.00"),
+        discount_type=DiscountType.NONE,
+        discount_value=Decimal("0.00"),
+        discount_amount=Decimal("0.00"),
+        gst_percentage=Decimal("5.00"),
+        gst_amount=Decimal("20.00"),
+        grand_total=Decimal("420.00"),
+        payment_method=PaymentMethod.UPI,
+        payment_status=PaymentStatus.PAID,
+        paid_at=(
+            datetime.now(timezone.utc)
+            .replace(tzinfo=None)
+        ),
+        refunded_at=None,
+        refund_reason=None,
     )
 
+    database.add(invoice)
+    database.flush()
+
+    order.invoice_id = invoice.id
+
+    database.add(order)
     database.commit()
 
 
@@ -215,6 +229,7 @@ def test_staff_can_create_customer(
     clear_overrides()
 
     assert response.status_code == 201
+
     assert (
         response.json()["data"]["full_name"]
         == "Rahul Das"
@@ -226,7 +241,9 @@ def test_duplicate_customer_phone_is_blocked(
 ) -> None:
     """Customer phone numbers cannot be duplicated."""
 
-    client, _ = build_client(database_session)
+    client, _ = build_client(
+        database_session
+    )
 
     payload = {
         "full_name": "First Customer",
@@ -243,7 +260,9 @@ def test_duplicate_customer_phone_is_blocked(
             json=payload,
         )
 
-        payload["full_name"] = "Second Customer"
+        payload["full_name"] = (
+            "Second Customer"
+        )
 
         second_response = client.post(
             "/api/v1/customers",
@@ -261,7 +280,9 @@ def test_customer_detail_contains_paid_spending(
 ) -> None:
     """Customer detail calculates paid spending."""
 
-    client, user = build_client(database_session)
+    client, user = build_client(
+        database_session
+    )
 
     with client:
         customer_response = client.post(
@@ -277,7 +298,8 @@ def test_customer_detail_contains_paid_spending(
         )
 
         customer_id = (
-            customer_response.json()["data"]["id"]
+            customer_response
+            .json()["data"]["id"]
         )
 
         create_paid_order(
@@ -292,13 +314,18 @@ def test_customer_detail_contains_paid_spending(
 
     clear_overrides()
 
-    assert detail_response.status_code == 200
+    assert (
+        detail_response.status_code
+        == 200
+    )
+
     assert (
         detail_response.json()["data"][
             "total_paid_spending"
         ]
         == "420.00"
     )
+
     assert (
         detail_response.json()["data"][
             "completed_order_count"
@@ -325,7 +352,11 @@ def test_staff_can_read_dashboard(
     clear_overrides()
 
     assert response.status_code == 200
-    assert "today_revenue" in response.json()["data"]
+
+    assert (
+        "today_revenue"
+        in response.json()["data"]
+    )
 
 
 def test_reports_are_admin_only(
@@ -357,5 +388,12 @@ def test_reports_are_admin_only(
 
     clear_overrides()
 
-    assert staff_response.status_code == 403
-    assert admin_response.status_code == 200
+    assert (
+        staff_response.status_code
+        == 403
+    )
+
+    assert (
+        admin_response.status_code
+        == 200
+    )

@@ -6,6 +6,7 @@ import {
   useMemo,
   useState,
 } from "react";
+
 import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
@@ -19,13 +20,18 @@ import {
   createApplicationSession,
   getCurrentAccount,
   registerCustomerAccount,
+  updateCurrentAccount,
 } from "../api/authApi";
+
 import { firebaseAuth } from "../firebase/config";
 
 const AuthContext = createContext(null);
 
 function getDefaultPath(role) {
-  if (role === "ADMIN" || role === "STAFF") {
+  if (
+    role === "ADMIN" ||
+    role === "STAFF"
+  ) {
     return "/staff/dashboard";
   }
 
@@ -36,12 +42,33 @@ function getDefaultPath(role) {
   return "/login";
 }
 
-export function AuthProvider({ children }) {
-  const [firebaseUser, setFirebaseUser] = useState(null);
-  const [appUser, setAppUser] = useState(null);
-  const [customer, setCustomer] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [sessionError, setSessionError] = useState("");
+export function AuthProvider({
+  children,
+}) {
+  const [
+    firebaseUser,
+    setFirebaseUser,
+  ] = useState(null);
+
+  const [
+    appUser,
+    setAppUser,
+  ] = useState(null);
+
+  const [
+    customer,
+    setCustomer,
+  ] = useState(null);
+
+  const [
+    loading,
+    setLoading,
+  ] = useState(true);
+
+  const [
+    sessionError,
+    setSessionError,
+  ] = useState("");
 
   const clearLocalSession = useCallback(() => {
     setAppUser(null);
@@ -49,159 +76,293 @@ export function AuthProvider({ children }) {
     setSessionError("");
   }, []);
 
-  const applySession = useCallback((sessionData) => {
-    setAppUser(sessionData.user);
-    setCustomer(sessionData.customer ?? null);
-    setSessionError("");
-  }, []);
+  const applySession = useCallback(
+    (sessionData) => {
+      setAppUser(sessionData.user);
+      setCustomer(
+        sessionData.customer ?? null,
+      );
+      setSessionError("");
+    },
+    [],
+  );
 
-  const loadCurrentAccount = useCallback(async () => {
-    const sessionData = await getCurrentAccount();
-    applySession(sessionData);
+  const loadCurrentAccount = useCallback(
+    async () => {
+      const sessionData =
+        await getCurrentAccount();
 
-    return sessionData;
-  }, [applySession]);
+      applySession(sessionData);
+
+      return sessionData;
+    },
+    [applySession],
+  );
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(
-      firebaseAuth,
-      async (currentFirebaseUser) => {
-        setFirebaseUser(currentFirebaseUser);
+    const unsubscribe =
+      onAuthStateChanged(
+        firebaseAuth,
+        async (
+          currentFirebaseUser,
+        ) => {
+          setFirebaseUser(
+            currentFirebaseUser,
+          );
 
-        if (!currentFirebaseUser) {
-          clearLocalSession();
-          setLoading(false);
-          return;
-        }
-
-        try {
-          await currentFirebaseUser.getIdToken(true);
-          await loadCurrentAccount();
-        } catch (error) {
-          clearLocalSession();
-
-          if (error.status !== 404) {
-            setSessionError(
-              error.message ?? "The account session could not be loaded.",
-            );
+          if (!currentFirebaseUser) {
+            clearLocalSession();
+            setLoading(false);
+            return;
           }
-        } finally {
-          setLoading(false);
-        }
-      },
-    );
+
+          try {
+            await currentFirebaseUser
+              .getIdToken(true);
+
+            await loadCurrentAccount();
+          } catch (error) {
+            clearLocalSession();
+
+            if (error.status !== 404) {
+              setSessionError(
+                error.message ??
+                  "The account session could not be loaded.",
+              );
+            }
+          } finally {
+            setLoading(false);
+          }
+        },
+      );
 
     return unsubscribe;
-  }, [clearLocalSession, loadCurrentAccount]);
+  }, [
+    clearLocalSession,
+    loadCurrentAccount,
+  ]);
 
-  const registerCustomer = useCallback(
-    async ({ fullName, email, password, phone, address }) => {
-      setSessionError("");
+  const registerCustomer =
+    useCallback(
+      async ({
+        fullName,
+        email,
+        password,
+        phone,
+        address,
+      }) => {
+        setSessionError("");
 
-      let createdFirebaseUser = null;
+        let createdFirebaseUser =
+          null;
 
-      try {
-        const credential = await createUserWithEmailAndPassword(
-          firebaseAuth,
-          email.trim().toLowerCase(),
-          password,
-        );
+        try {
+          const credential =
+            await createUserWithEmailAndPassword(
+              firebaseAuth,
+              email
+                .trim()
+                .toLowerCase(),
+              password,
+            );
 
-        createdFirebaseUser = credential.user;
+          createdFirebaseUser =
+            credential.user;
 
-        await updateProfile(createdFirebaseUser, {
-          displayName: fullName.trim(),
-        });
+          await updateProfile(
+            createdFirebaseUser,
+            {
+              displayName:
+                fullName.trim(),
+            },
+          );
 
-        await createdFirebaseUser.getIdToken(true);
+          await createdFirebaseUser
+            .getIdToken(true);
 
-        const sessionData = await registerCustomerAccount({
-          full_name: fullName.trim(),
-          phone: phone.trim(),
-          address: address.trim() || null,
-        });
+          const sessionData =
+            await registerCustomerAccount(
+              {
+                full_name:
+                  fullName.trim(),
+                phone: phone.trim(),
+                address:
+                  address.trim() ||
+                  null,
+              },
+            );
 
-        setFirebaseUser(createdFirebaseUser);
-        applySession(sessionData);
+          setFirebaseUser(
+            createdFirebaseUser,
+          );
 
-        return {
-          session: sessionData,
-          redirectTo: getDefaultPath(sessionData.user.role),
-        };
-      } catch (error) {
-        if (createdFirebaseUser) {
-          try {
-            await signOut(firebaseAuth);
-          } catch {
-            // Firebase logout failure should not hide registration failure.
+          applySession(sessionData);
+
+          return {
+            session: sessionData,
+            redirectTo:
+              getDefaultPath(
+                sessionData.user.role,
+              ),
+          };
+        } catch (error) {
+          if (createdFirebaseUser) {
+            try {
+              await signOut(
+                firebaseAuth,
+              );
+            } catch {
+              // Keep the registration error.
+            }
           }
-        }
 
-        clearLocalSession();
-        throw error;
-      }
-    },
-    [applySession, clearLocalSession],
-  );
+          clearLocalSession();
+          throw error;
+        }
+      },
+      [
+        applySession,
+        clearLocalSession,
+      ],
+    );
 
   const login = useCallback(
-    async ({ email, password }) => {
+    async ({
+      email,
+      password,
+    }) => {
       setSessionError("");
 
       try {
-        const credential = await signInWithEmailAndPassword(
-          firebaseAuth,
-          email.trim().toLowerCase(),
-          password,
+        const credential =
+          await signInWithEmailAndPassword(
+            firebaseAuth,
+            email
+              .trim()
+              .toLowerCase(),
+            password,
+          );
+
+        await credential.user
+          .getIdToken(true);
+
+        const sessionData =
+          await createApplicationSession();
+
+        setFirebaseUser(
+          credential.user,
         );
 
-        await credential.user.getIdToken(true);
-
-        const sessionData = await createApplicationSession();
-
-        setFirebaseUser(credential.user);
         applySession(sessionData);
 
         return {
           session: sessionData,
-          redirectTo: getDefaultPath(sessionData.user.role),
+          redirectTo:
+            getDefaultPath(
+              sessionData.user.role,
+            ),
         };
       } catch (error) {
         try {
-          await signOut(firebaseAuth);
+          await signOut(
+            firebaseAuth,
+          );
         } catch {
-          // The original login error remains more useful.
+          // Keep the login error.
         }
 
         clearLocalSession();
         throw error;
       }
     },
-    [applySession, clearLocalSession],
+    [
+      applySession,
+      clearLocalSession,
+    ],
   );
 
-  const logout = useCallback(async () => {
-    await signOut(firebaseAuth);
-    setFirebaseUser(null);
-    clearLocalSession();
-  }, [clearLocalSession]);
+  const saveProfile = useCallback(
+    async ({
+      fullName,
+      phone = null,
+      address = null,
+    }) => {
+      const payload = {
+        full_name: fullName.trim(),
+        phone:
+          phone === null
+            ? null
+            : phone.trim() || null,
+        address:
+          address === null
+            ? null
+            : address.trim() || null,
+      };
 
-  const resetPassword = useCallback(async (email) => {
-    await sendPasswordResetEmail(
-      firebaseAuth,
-      email.trim().toLowerCase(),
-    );
-  }, []);
+      const sessionData =
+        await updateCurrentAccount(
+          payload,
+        );
 
-  const refreshSession = useCallback(async () => {
-    if (!firebaseAuth.currentUser) {
+      if (
+        firebaseAuth.currentUser
+      ) {
+        await updateProfile(
+          firebaseAuth.currentUser,
+          {
+            displayName:
+              sessionData.user.full_name,
+          },
+        );
+
+        setFirebaseUser({
+          ...firebaseAuth.currentUser,
+        });
+      }
+
+      applySession(sessionData);
+
+      return sessionData;
+    },
+    [applySession],
+  );
+
+  const logout = useCallback(
+    async () => {
+      await signOut(firebaseAuth);
+      setFirebaseUser(null);
       clearLocalSession();
-      return null;
-    }
+    },
+    [clearLocalSession],
+  );
 
-    await firebaseAuth.currentUser.getIdToken(true);
-    return loadCurrentAccount();
-  }, [clearLocalSession, loadCurrentAccount]);
+  const resetPassword =
+    useCallback(async (email) => {
+      await sendPasswordResetEmail(
+        firebaseAuth,
+        email
+          .trim()
+          .toLowerCase(),
+      );
+    }, []);
+
+  const refreshSession =
+    useCallback(async () => {
+      if (
+        !firebaseAuth.currentUser
+      ) {
+        clearLocalSession();
+        return null;
+      }
+
+      await firebaseAuth.currentUser
+        .getIdToken(true);
+
+      return loadCurrentAccount();
+    }, [
+      clearLocalSession,
+      loadCurrentAccount,
+    ]);
 
   const value = useMemo(
     () => ({
@@ -210,14 +371,20 @@ export function AuthProvider({ children }) {
       customer,
       loading,
       sessionError,
-      isAuthenticated: Boolean(firebaseUser && appUser),
-      role: appUser?.role ?? null,
+      isAuthenticated: Boolean(
+        firebaseUser &&
+          appUser,
+      ),
+      role:
+        appUser?.role ?? null,
       registerCustomer,
       login,
       logout,
       resetPassword,
+      saveProfile,
       refreshSession,
-      clearSessionError: () => setSessionError(""),
+      clearSessionError: () =>
+        setSessionError(""),
       getDefaultPath,
     }),
     [
@@ -230,22 +397,28 @@ export function AuthProvider({ children }) {
       login,
       logout,
       resetPassword,
+      saveProfile,
       refreshSession,
     ],
   );
 
   return (
-    <AuthContext.Provider value={value}>
+    <AuthContext.Provider
+      value={value}
+    >
       {children}
     </AuthContext.Provider>
   );
 }
 
 export function useAuth() {
-  const context = useContext(AuthContext);
+  const context =
+    useContext(AuthContext);
 
   if (!context) {
-    throw new Error("useAuth must be used inside AuthProvider.");
+    throw new Error(
+      "useAuth must be used inside AuthProvider.",
+    );
   }
 
   return context;

@@ -10,12 +10,11 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     Enum as SAEnum,
-    ForeignKey,
     Index,
     Numeric,
     String,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, relationship, mapped_column
 
 from app.database.base import Base, TimestampMixin
 from app.utils.enums import (
@@ -30,20 +29,11 @@ if TYPE_CHECKING:
 
 
 class Invoice(TimestampMixin, Base):
-    """Final billing information for an order."""
+    """Final billing information for one or more orders."""
 
     __tablename__ = "invoices"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-
-    order_id: Mapped[int] = mapped_column(
-        ForeignKey(
-            "orders.id",
-            ondelete="RESTRICT",
-        ),
-        unique=True,
-        nullable=False,
-    )
 
     invoice_number: Mapped[str] = mapped_column(
         String(30),
@@ -136,10 +126,28 @@ class Invoice(TimestampMixin, Base):
         nullable=True,
     )
 
-    order: Mapped[Order] = relationship(
+    orders: Mapped[list[Order]] = relationship(
         "Order",
         back_populates="invoice",
+        order_by="Order.id",
     )
+
+    @property
+    def order(self) -> Order | None:
+        """Return the first order for legacy API compatibility."""
+
+        if not self.orders:
+            return None
+
+        return self.orders[0]
+
+    @property
+    def order_id(self) -> int | None:
+        """Return the first order ID for legacy API compatibility."""
+
+        order = self.order
+
+        return order.id if order else None
 
     __table_args__ = (
         CheckConstraint(
@@ -166,10 +174,22 @@ class Invoice(TimestampMixin, Base):
             "grand_total >= 0",
             name="grand_total_non_negative",
         ),
-        Index("ix_invoices_payment_status", "payment_status"),
-        Index("ix_invoices_payment_method", "payment_method"),
-        Index("ix_invoices_paid_at", "paid_at"),
-        Index("ix_invoices_created_at", "created_at"),
+        Index(
+            "ix_invoices_payment_status",
+            "payment_status",
+        ),
+        Index(
+            "ix_invoices_payment_method",
+            "payment_method",
+        ),
+        Index(
+            "ix_invoices_paid_at",
+            "paid_at",
+        ),
+        Index(
+            "ix_invoices_created_at",
+            "created_at",
+        ),
     )
 
     def __repr__(self) -> str:

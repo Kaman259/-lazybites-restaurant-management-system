@@ -10,7 +10,10 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import AppException
 from app.models.customer import Customer
 from app.models.user import User
-from app.schemas.auth import CustomerRegistrationRequest
+from app.schemas.auth import (
+    AccountProfileUpdate,
+    CustomerRegistrationRequest,
+)
 from app.utils.enums import UserRole
 
 
@@ -67,9 +70,13 @@ def register_customer_account(
     """Create a customer user and linked customer profile."""
 
     firebase_uid = str(
-        firebase_claims.get("uid") or firebase_claims.get("sub")
+        firebase_claims.get("uid")
+        or firebase_claims.get("sub")
     )
-    email = normalise_email(str(firebase_claims.get("email", "")))
+
+    email = normalise_email(
+        str(firebase_claims.get("email", ""))
+    )
 
     existing_uid_user = get_user_by_firebase_uid(
         database,
@@ -83,21 +90,34 @@ def register_customer_account(
         )
 
         if (
-            existing_uid_user.role == UserRole.CUSTOMER
+            existing_uid_user.role
+            == UserRole.CUSTOMER
             and existing_customer is not None
         ):
-            return existing_uid_user, existing_customer
+            return (
+                existing_uid_user,
+                existing_customer,
+            )
 
         raise AppException(
-            message="This Firebase account is already registered.",
+            message=(
+                "This Firebase account is already "
+                "registered."
+            ),
             status_code=409,
         )
 
-    existing_email_user = get_user_by_email(database, email)
+    existing_email_user = get_user_by_email(
+        database,
+        email,
+    )
 
     if existing_email_user is not None:
         raise AppException(
-            message="An account with this email already exists.",
+            message=(
+                "An account with this email already "
+                "exists."
+            ),
             status_code=409,
         )
 
@@ -128,7 +148,10 @@ def register_customer_account(
         database.rollback()
 
         raise AppException(
-            message="The customer account could not be created.",
+            message=(
+                "The customer account could not "
+                "be created."
+            ),
             status_code=409,
         ) from exception
 
@@ -146,11 +169,16 @@ def create_auth_session(
 
     if not user.is_active:
         raise AppException(
-            message="This account has been deactivated.",
+            message=(
+                "This account has been deactivated."
+            ),
             status_code=403,
         )
 
-    user.last_login_at = datetime.now(timezone.utc)
+    user.last_login_at = datetime.now(
+        timezone.utc
+    )
+
     database.add(user)
     database.commit()
     database.refresh(user)
@@ -158,18 +186,103 @@ def create_auth_session(
     customer = None
 
     if user.role == UserRole.CUSTOMER:
-        customer = get_customer_for_user(database, user.id)
+        customer = get_customer_for_user(
+            database,
+            user.id,
+        )
 
         if customer is None:
             raise AppException(
-                message="The customer profile is missing.",
+                message=(
+                    "The customer profile is missing."
+                ),
                 status_code=409,
             )
 
         if not customer.is_active:
             raise AppException(
-                message="This customer profile has been deactivated.",
+                message=(
+                    "This customer profile has been "
+                    "deactivated."
+                ),
                 status_code=403,
             )
+
+    return user, customer
+
+
+def update_account_profile(
+    database: Session,
+    user: User,
+    profile_data: AccountProfileUpdate,
+) -> tuple[User, Customer | None]:
+    """Update the authenticated user's editable profile."""
+
+    if not user.is_active:
+        raise AppException(
+            message=(
+                "This account has been deactivated."
+            ),
+            status_code=403,
+        )
+
+    user.full_name = profile_data.full_name
+
+    customer = get_customer_for_user(
+        database,
+        user.id,
+    )
+
+    if user.role == UserRole.CUSTOMER:
+        if customer is None:
+            raise AppException(
+                message=(
+                    "The customer profile is missing."
+                ),
+                status_code=409,
+            )
+
+        if not customer.is_active:
+            raise AppException(
+                message=(
+                    "This customer profile has been "
+                    "deactivated."
+                ),
+                status_code=403,
+            )
+
+        if not profile_data.phone:
+            raise AppException(
+                message=(
+                    "Phone number is required for "
+                    "customer accounts."
+                ),
+                status_code=400,
+            )
+
+        customer.full_name = profile_data.full_name
+        customer.phone = profile_data.phone
+        customer.address = profile_data.address
+
+        database.add(customer)
+
+    database.add(user)
+
+    try:
+        database.commit()
+    except IntegrityError as exception:
+        database.rollback()
+
+        raise AppException(
+            message=(
+                "The profile could not be updated."
+            ),
+            status_code=409,
+        ) from exception
+
+    database.refresh(user)
+
+    if customer is not None:
+        database.refresh(customer)
 
     return user, customer

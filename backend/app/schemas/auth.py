@@ -1,6 +1,11 @@
 """Authentication request and response schemas."""
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+)
 
 from app.utils.enums import UserRole
 
@@ -16,9 +21,20 @@ class FirebaseIdentity(BaseModel):
 class CustomerRegistrationRequest(BaseModel):
     """Additional customer information saved after Firebase registration."""
 
-    full_name: str = Field(min_length=2, max_length=120)
-    phone: str = Field(min_length=7, max_length=20)
-    address: str | None = Field(default=None, max_length=500)
+    full_name: str = Field(
+        min_length=2,
+        max_length=120,
+    )
+
+    phone: str = Field(
+        min_length=7,
+        max_length=20,
+    )
+
+    address: str | None = Field(
+        default=None,
+        max_length=500,
+    )
 
     @field_validator("full_name", "phone")
     @classmethod
@@ -28,7 +44,9 @@ class CustomerRegistrationRequest(BaseModel):
         cleaned_value = value.strip()
 
         if not cleaned_value:
-            raise ValueError("This field cannot be empty.")
+            raise ValueError(
+                "This field cannot be empty."
+            )
 
         return cleaned_value
 
@@ -47,10 +65,78 @@ class CustomerRegistrationRequest(BaseModel):
         return cleaned_value or None
 
 
+class AccountProfileUpdate(BaseModel):
+    """Editable fields for the authenticated account."""
+
+    full_name: str = Field(
+        min_length=2,
+        max_length=120,
+    )
+
+    phone: str | None = Field(
+        default=None,
+        min_length=7,
+        max_length=20,
+    )
+
+    address: str | None = Field(
+        default=None,
+        max_length=500,
+    )
+
+    @field_validator("full_name")
+    @classmethod
+    def clean_full_name(cls, value: str) -> str:
+        """Clean and validate the account name."""
+
+        cleaned_value = value.strip()
+
+        if not cleaned_value:
+            raise ValueError(
+                "Full name is required."
+            )
+
+        return cleaned_value
+
+    @field_validator("phone")
+    @classmethod
+    def clean_phone(
+        cls,
+        value: str | None,
+    ) -> str | None:
+        """Clean an optional customer phone number."""
+
+        if value is None:
+            return None
+
+        cleaned_value = value.strip()
+
+        if not cleaned_value:
+            return None
+
+        return cleaned_value
+
+    @field_validator("address")
+    @classmethod
+    def clean_address(
+        cls,
+        value: str | None,
+    ) -> str | None:
+        """Clean an optional customer address."""
+
+        if value is None:
+            return None
+
+        cleaned_value = value.strip()
+        return cleaned_value or None
+
+
 class AuthUserResponse(BaseModel):
     """Authenticated local application user."""
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+    )
 
     id: int
     firebase_uid: str
@@ -63,7 +149,9 @@ class AuthUserResponse(BaseModel):
 class CustomerProfileSummary(BaseModel):
     """Customer details returned with authentication data."""
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+    )
 
     id: int
     full_name: str

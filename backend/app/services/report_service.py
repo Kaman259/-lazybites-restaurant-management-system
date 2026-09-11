@@ -1,6 +1,12 @@
 """Dashboard and restaurant reporting service functions."""
 
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import (
+    date,
+    datetime,
+    time,
+    timedelta,
+    timezone,
+)
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -12,7 +18,9 @@ from app.models.invoice import Invoice
 from app.models.order import Order
 from app.models.order_item import OrderItem
 from app.models.reservation import Reservation
-from app.services.settings_service import get_restaurant_settings
+from app.services.settings_service import (
+    get_restaurant_settings,
+)
 from app.utils.enums import (
     OrderStatus,
     PaymentStatus,
@@ -23,7 +31,9 @@ from app.utils.enums import (
 def money(value) -> Decimal:
     """Return a two-decimal monetary value."""
 
-    return Decimal(value or 0).quantize(Decimal("0.01"))
+    return Decimal(value or 0).quantize(
+        Decimal("0.01")
+    )
 
 
 def utc_database_range(
@@ -33,7 +43,9 @@ def utc_database_range(
 ) -> tuple[datetime, datetime]:
     """Convert local date limits to naive UTC datetimes."""
 
-    local_timezone = ZoneInfo(timezone_name)
+    local_timezone = ZoneInfo(
+        timezone_name
+    )
 
     local_start = datetime.combine(
         start_date,
@@ -48,12 +60,14 @@ def utc_database_range(
     )
 
     utc_start = (
-        local_start.astimezone(timezone.utc)
+        local_start
+        .astimezone(timezone.utc)
         .replace(tzinfo=None)
     )
 
     utc_end = (
-        local_end.astimezone(timezone.utc)
+        local_end
+        .astimezone(timezone.utc)
         .replace(tzinfo=None)
     )
 
@@ -65,23 +79,31 @@ def get_dashboard_summary(
 ) -> dict:
     """Return current-day dashboard totals."""
 
-    settings_record = get_restaurant_settings(database)
+    settings_record = (
+        get_restaurant_settings(database)
+    )
 
     local_today = datetime.now(
-        ZoneInfo(settings_record.timezone)
+        ZoneInfo(
+            settings_record.timezone
+        )
     ).date()
 
     utc_start, utc_end = utc_database_range(
         start_date=local_today,
         end_date=local_today,
-        timezone_name=settings_record.timezone,
+        timezone_name=(
+            settings_record.timezone
+        ),
     )
 
     paid_today = money(
         database.scalar(
             select(
                 func.coalesce(
-                    func.sum(Invoice.grand_total),
+                    func.sum(
+                        Invoice.grand_total
+                    ),
                     0,
                 )
             ).where(
@@ -101,27 +123,37 @@ def get_dashboard_summary(
         database.scalar(
             select(
                 func.coalesce(
-                    func.sum(Invoice.grand_total),
+                    func.sum(
+                        Invoice.grand_total
+                    ),
                     0,
                 )
             ).where(
                 Invoice.payment_status
                 == PaymentStatus.REFUNDED,
-                Invoice.refunded_at >= utc_start,
-                Invoice.refunded_at < utc_end,
+                Invoice.refunded_at
+                >= utc_start,
+                Invoice.refunded_at
+                < utc_end,
             )
         )
     )
 
     today_orders = database.scalar(
-        select(func.count(Order.id)).where(
-            Order.created_at >= utc_start,
-            Order.created_at < utc_end,
+        select(
+            func.count(Order.id)
+        ).where(
+            Order.created_at
+            >= utc_start,
+            Order.created_at
+            < utc_end,
         )
     )
 
     pending_orders = database.scalar(
-        select(func.count(Order.id)).where(
+        select(
+            func.count(Order.id)
+        ).where(
             Order.status.in_(
                 [
                     OrderStatus.PENDING,
@@ -134,7 +166,11 @@ def get_dashboard_summary(
     )
 
     active_reservations = database.scalar(
-        select(func.count(Reservation.id)).where(
+        select(
+            func.count(
+                Reservation.id
+            )
+        ).where(
             Reservation.status.in_(
                 [
                     ReservationStatus.PENDING,
@@ -142,19 +178,27 @@ def get_dashboard_summary(
                     ReservationStatus.SEATED,
                 ]
             ),
-            Reservation.end_time >= utc_start,
-            Reservation.start_time < utc_end,
+            Reservation.end_time
+            >= utc_start,
+            Reservation.start_time
+            < utc_end,
         )
     )
 
     total_customers = database.scalar(
-        select(func.count(Customer.id)).where(
-            Customer.is_active.is_(True)
+        select(
+            func.count(Customer.id)
+        ).where(
+            Customer.is_active.is_(
+                True
+            )
         )
     )
 
     unpaid_invoices = database.scalar(
-        select(func.count(Invoice.id)).where(
+        select(
+            func.count(Invoice.id)
+        ).where(
             Invoice.payment_status
             == PaymentStatus.UNPAID
         )
@@ -162,15 +206,24 @@ def get_dashboard_summary(
 
     return {
         "today_revenue": money(
-            paid_today - refunded_today
+            paid_today
+            - refunded_today
         ),
-        "today_orders": today_orders or 0,
-        "pending_orders": pending_orders or 0,
+        "today_orders": (
+            today_orders or 0
+        ),
+        "pending_orders": (
+            pending_orders or 0
+        ),
         "active_reservations": (
             active_reservations or 0
         ),
-        "total_customers": total_customers or 0,
-        "unpaid_invoices": unpaid_invoices or 0,
+        "total_customers": (
+            total_customers or 0
+        ),
+        "unpaid_invoices": (
+            unpaid_invoices or 0
+        ),
     }
 
 
@@ -181,12 +234,16 @@ def get_reports(
 ) -> dict:
     """Return reports for a selected local date range."""
 
-    settings_record = get_restaurant_settings(database)
+    settings_record = (
+        get_restaurant_settings(database)
+    )
 
     utc_start, utc_end = utc_database_range(
         start_date=start_date,
         end_date=end_date,
-        timezone_name=settings_record.timezone,
+        timezone_name=(
+            settings_record.timezone
+        ),
     )
 
     received_payment_statuses = [
@@ -194,55 +251,96 @@ def get_reports(
         PaymentStatus.REFUNDED,
     ]
 
-    paid_invoice_count = database.scalar(
-        select(func.count(Invoice.id)).where(
-            Invoice.payment_status == PaymentStatus.PAID,
-            Invoice.paid_at >= utc_start,
-            Invoice.paid_at < utc_end,
+    paid_invoice_count = (
+        database.scalar(
+            select(
+                func.count(
+                    Invoice.id
+                )
+            ).where(
+                Invoice.payment_status
+                == PaymentStatus.PAID,
+                Invoice.paid_at
+                >= utc_start,
+                Invoice.paid_at
+                < utc_end,
+            )
         )
-    ) or 0
+        or 0
+    )
 
-    refunded_invoice_count = database.scalar(
-        select(func.count(Invoice.id)).where(
-            Invoice.payment_status
-            == PaymentStatus.REFUNDED,
-            Invoice.refunded_at >= utc_start,
-            Invoice.refunded_at < utc_end,
+    refunded_invoice_count = (
+        database.scalar(
+            select(
+                func.count(
+                    Invoice.id
+                )
+            ).where(
+                Invoice.payment_status
+                == PaymentStatus.REFUNDED,
+                Invoice.refunded_at
+                >= utc_start,
+                Invoice.refunded_at
+                < utc_end,
+            )
         )
-    ) or 0
+        or 0
+    )
 
-    unpaid_invoice_count = database.scalar(
-        select(func.count(Invoice.id)).where(
-            Invoice.payment_status
-            == PaymentStatus.UNPAID,
-            Invoice.created_at >= utc_start,
-            Invoice.created_at < utc_end,
+    unpaid_invoice_count = (
+        database.scalar(
+            select(
+                func.count(
+                    Invoice.id
+                )
+            ).where(
+                Invoice.payment_status
+                == PaymentStatus.UNPAID,
+                Invoice.created_at
+                >= utc_start,
+                Invoice.created_at
+                < utc_end,
+            )
         )
-    ) or 0
+        or 0
+    )
 
-    received_invoice_count = database.scalar(
-        select(func.count(Invoice.id)).where(
-            Invoice.payment_status.in_(
-                received_payment_statuses
-            ),
-            Invoice.paid_at >= utc_start,
-            Invoice.paid_at < utc_end,
+    received_invoice_count = (
+        database.scalar(
+            select(
+                func.count(
+                    Invoice.id
+                )
+            ).where(
+                Invoice.payment_status.in_(
+                    received_payment_statuses
+                ),
+                Invoice.paid_at
+                >= utc_start,
+                Invoice.paid_at
+                < utc_end,
+            )
         )
-    ) or 0
+        or 0
+    )
 
     gross_paid_revenue = money(
         database.scalar(
             select(
                 func.coalesce(
-                    func.sum(Invoice.grand_total),
+                    func.sum(
+                        Invoice.grand_total
+                    ),
                     0,
                 )
             ).where(
                 Invoice.payment_status.in_(
                     received_payment_statuses
                 ),
-                Invoice.paid_at >= utc_start,
-                Invoice.paid_at < utc_end,
+                Invoice.paid_at
+                >= utc_start,
+                Invoice.paid_at
+                < utc_end,
             )
         )
     )
@@ -251,31 +349,41 @@ def get_reports(
         database.scalar(
             select(
                 func.coalesce(
-                    func.sum(Invoice.grand_total),
+                    func.sum(
+                        Invoice.grand_total
+                    ),
                     0,
                 )
             ).where(
                 Invoice.payment_status
                 == PaymentStatus.REFUNDED,
-                Invoice.refunded_at >= utc_start,
-                Invoice.refunded_at < utc_end,
+                Invoice.refunded_at
+                >= utc_start,
+                Invoice.refunded_at
+                < utc_end,
             )
         )
     )
 
     invoice_period_filter = (
-        Invoice.created_at >= utc_start,
-        Invoice.created_at < utc_end,
+        Invoice.created_at
+        >= utc_start,
+        Invoice.created_at
+        < utc_end,
     )
 
     total_discount = money(
         database.scalar(
             select(
                 func.coalesce(
-                    func.sum(Invoice.discount_amount),
+                    func.sum(
+                        Invoice.discount_amount
+                    ),
                     0,
                 )
-            ).where(*invoice_period_filter)
+            ).where(
+                *invoice_period_filter
+            )
         )
     )
 
@@ -283,112 +391,184 @@ def get_reports(
         database.scalar(
             select(
                 func.coalesce(
-                    func.sum(Invoice.gst_amount),
+                    func.sum(
+                        Invoice.gst_amount
+                    ),
                     0,
                 )
-            ).where(*invoice_period_filter)
+            ).where(
+                *invoice_period_filter
+            )
         )
     )
 
     average_paid_invoice = money(
         (
-            gross_paid_revenue / received_invoice_count
+            gross_paid_revenue
+            / received_invoice_count
             if received_invoice_count
             else Decimal("0.00")
         )
     )
 
-    order_status_rows = database.execute(
-        select(
-            Order.status,
-            func.count(Order.id),
+    order_status_rows = (
+        database.execute(
+            select(
+                Order.status,
+                func.count(
+                    Order.id
+                ),
+            )
+            .where(
+                Order.created_at
+                >= utc_start,
+                Order.created_at
+                < utc_end,
+            )
+            .group_by(
+                Order.status
+            )
+            .order_by(
+                Order.status
+            )
         )
-        .where(
-            Order.created_at >= utc_start,
-            Order.created_at < utc_end,
-        )
-        .group_by(Order.status)
-        .order_by(Order.status)
-    ).all()
+        .all()
+    )
 
-    reservation_status_rows = database.execute(
-        select(
-            Reservation.status,
-            func.count(Reservation.id),
+    reservation_status_rows = (
+        database.execute(
+            select(
+                Reservation.status,
+                func.count(
+                    Reservation.id
+                ),
+            )
+            .where(
+                Reservation.created_at
+                >= utc_start,
+                Reservation.created_at
+                < utc_end,
+            )
+            .group_by(
+                Reservation.status
+            )
+            .order_by(
+                Reservation.status
+            )
         )
-        .where(
-            Reservation.created_at >= utc_start,
-            Reservation.created_at < utc_end,
-        )
-        .group_by(Reservation.status)
-        .order_by(Reservation.status)
-    ).all()
+        .all()
+    )
 
-    payment_rows = database.execute(
-        select(
-            Invoice.payment_method,
-            func.count(Invoice.id),
-            func.coalesce(
-                func.sum(Invoice.grand_total),
-                0,
-            ),
+    payment_rows = (
+        database.execute(
+            select(
+                Invoice.payment_method,
+                func.count(
+                    Invoice.id
+                ),
+                func.coalesce(
+                    func.sum(
+                        Invoice.grand_total
+                    ),
+                    0,
+                ),
+            )
+            .where(
+                Invoice.payment_status.in_(
+                    received_payment_statuses
+                ),
+                Invoice.payment_method.is_not(
+                    None
+                ),
+                Invoice.paid_at
+                >= utc_start,
+                Invoice.paid_at
+                < utc_end,
+            )
+            .group_by(
+                Invoice.payment_method
+            )
+            .order_by(
+                Invoice.payment_method
+            )
         )
-        .where(
-            Invoice.payment_status.in_(
-                received_payment_statuses
-            ),
-            Invoice.payment_method.is_not(None),
-            Invoice.paid_at >= utc_start,
-            Invoice.paid_at < utc_end,
-        )
-        .group_by(Invoice.payment_method)
-        .order_by(Invoice.payment_method)
-    ).all()
+        .all()
+    )
 
-    popular_item_rows = database.execute(
-        select(
-            OrderItem.menu_item_id,
-            OrderItem.item_name,
-            func.sum(OrderItem.quantity),
-            func.sum(OrderItem.line_total),
+    popular_item_rows = (
+        database.execute(
+            select(
+                OrderItem.menu_item_id,
+                OrderItem.item_name,
+                func.sum(
+                    OrderItem.quantity
+                ),
+                func.sum(
+                    OrderItem.line_total
+                ),
+            )
+            .join(
+                Order,
+                OrderItem.order_id
+                == Order.id,
+            )
+            .join(
+                Invoice,
+                Order.invoice_id
+                == Invoice.id,
+            )
+            .where(
+                Invoice.payment_status.in_(
+                    received_payment_statuses
+                ),
+                Invoice.paid_at
+                >= utc_start,
+                Invoice.paid_at
+                < utc_end,
+            )
+            .group_by(
+                OrderItem.menu_item_id,
+                OrderItem.item_name,
+            )
+            .order_by(
+                func.sum(
+                    OrderItem.quantity
+                ).desc()
+            )
+            .limit(10)
         )
-        .join(Order, OrderItem.order_id == Order.id)
-        .join(Invoice, Invoice.order_id == Order.id)
-        .where(
-            Invoice.payment_status.in_(
-                received_payment_statuses
-            ),
-            Invoice.paid_at >= utc_start,
-            Invoice.paid_at < utc_end,
-        )
-        .group_by(
-            OrderItem.menu_item_id,
-            OrderItem.item_name,
-        )
-        .order_by(
-            func.sum(OrderItem.quantity).desc()
-        )
-        .limit(10)
-    ).all()
+        .all()
+    )
 
     return {
         "sales": {
             "start_date": start_date,
             "end_date": end_date,
-            "paid_invoice_count": paid_invoice_count,
+            "paid_invoice_count": (
+                paid_invoice_count
+            ),
             "refunded_invoice_count": (
                 refunded_invoice_count
             ),
             "unpaid_invoice_count": (
                 unpaid_invoice_count
             ),
-            "gross_paid_revenue": gross_paid_revenue,
-            "refunded_revenue": refunded_revenue,
-            "net_revenue": money(
-                gross_paid_revenue - refunded_revenue
+            "gross_paid_revenue": (
+                gross_paid_revenue
             ),
-            "total_discount": total_discount,
-            "total_gst": total_gst,
+            "refunded_revenue": (
+                refunded_revenue
+            ),
+            "net_revenue": money(
+                gross_paid_revenue
+                - refunded_revenue
+            ),
+            "total_discount": (
+                total_discount
+            ),
+            "total_gst": (
+                total_gst
+            ),
             "average_paid_invoice": (
                 average_paid_invoice
             ),
@@ -398,21 +578,32 @@ def get_reports(
                 "status": status.value,
                 "count": count,
             }
-            for status, count in order_status_rows
+            for (
+                status,
+                count,
+            ) in order_status_rows
         ],
         "reservation_statuses": [
             {
                 "status": status.value,
                 "count": count,
             }
-            for status, count
-            in reservation_status_rows
+            for (
+                status,
+                count,
+            ) in reservation_status_rows
         ],
         "payment_breakdown": [
             {
-                "payment_method": payment_method,
-                "invoice_count": invoice_count,
-                "total_amount": money(total_amount),
+                "payment_method": (
+                    payment_method
+                ),
+                "invoice_count": (
+                    invoice_count
+                ),
+                "total_amount": money(
+                    total_amount
+                ),
             }
             for (
                 payment_method,
@@ -422,10 +613,18 @@ def get_reports(
         ],
         "popular_items": [
             {
-                "menu_item_id": menu_item_id,
-                "item_name": item_name,
-                "quantity_sold": quantity_sold,
-                "sales_amount": money(sales_amount),
+                "menu_item_id": (
+                    menu_item_id
+                ),
+                "item_name": (
+                    item_name
+                ),
+                "quantity_sold": (
+                    quantity_sold
+                ),
+                "sales_amount": money(
+                    sales_amount
+                ),
             }
             for (
                 menu_item_id,

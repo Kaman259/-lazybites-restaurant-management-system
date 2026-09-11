@@ -3,7 +3,6 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
-from sqlalchemy.orm import Session
 
 from app.api.dependencies import (
     CurrentUser,
@@ -17,6 +16,7 @@ from app.auth.permissions import (
 from app.core.responses import success_response
 from app.models.user import User
 from app.schemas.auth import (
+    AccountProfileUpdate,
     AuthSessionResponse,
     AuthUserResponse,
     CustomerProfileSummary,
@@ -26,6 +26,7 @@ from app.services.auth_service import (
     create_auth_session,
     get_customer_for_user,
     register_customer_account,
+    update_account_profile,
 )
 
 
@@ -34,8 +35,37 @@ router = APIRouter(
     tags=["Authentication"],
 )
 
-AdminUser = Annotated[User, Depends(require_admin)]
-StaffUser = Annotated[User, Depends(require_staff_or_admin)]
+AdminUser = Annotated[
+    User,
+    Depends(require_admin),
+]
+
+StaffUser = Annotated[
+    User,
+    Depends(require_staff_or_admin),
+]
+
+
+def build_session_response(
+    user: User,
+    customer,
+) -> dict:
+    """Build the standard authenticated account response."""
+
+    response_data = AuthSessionResponse(
+        user=AuthUserResponse.model_validate(user),
+        customer=(
+            CustomerProfileSummary.model_validate(
+                customer
+            )
+            if customer is not None
+            else None
+        ),
+    )
+
+    return response_data.model_dump(
+        mode="json",
+    )
 
 
 @router.post(
@@ -56,14 +86,14 @@ def register_customer(
         registration_data=registration_data,
     )
 
-    response_data = AuthSessionResponse(
-        user=AuthUserResponse.model_validate(user),
-        customer=CustomerProfileSummary.model_validate(customer),
-    )
-
     return success_response(
-        message="Customer account created successfully.",
-        data=response_data.model_dump(mode="json"),
+        message=(
+            "Customer account created successfully."
+        ),
+        data=build_session_response(
+            user,
+            customer,
+        ),
         status_code=status.HTTP_201_CREATED,
     )
 
@@ -83,18 +113,14 @@ def create_session(
         user=current_user,
     )
 
-    response_data = AuthSessionResponse(
-        user=AuthUserResponse.model_validate(user),
-        customer=(
-            CustomerProfileSummary.model_validate(customer)
-            if customer is not None
-            else None
-        ),
-    )
-
     return success_response(
-        message="Login session created successfully.",
-        data=response_data.model_dump(mode="json"),
+        message=(
+            "Login session created successfully."
+        ),
+        data=build_session_response(
+            user,
+            customer,
+        ),
     )
 
 
@@ -113,18 +139,41 @@ def read_current_account(
         current_user.id,
     )
 
-    response_data = AuthSessionResponse(
-        user=AuthUserResponse.model_validate(current_user),
-        customer=(
-            CustomerProfileSummary.model_validate(customer)
-            if customer is not None
-            else None
+    return success_response(
+        message=(
+            "Authenticated account retrieved "
+            "successfully."
+        ),
+        data=build_session_response(
+            current_user,
+            customer,
         ),
     )
 
+
+@router.patch(
+    "/me",
+    summary="Update the authenticated account",
+)
+def change_current_account(
+    profile_data: AccountProfileUpdate,
+    current_user: CurrentUser,
+    database: DatabaseSession,
+):
+    """Update editable profile fields for the current user."""
+
+    user, customer = update_account_profile(
+        database=database,
+        user=current_user,
+        profile_data=profile_data,
+    )
+
     return success_response(
-        message="Authenticated account retrieved successfully.",
-        data=response_data.model_dump(mode="json"),
+        message="Profile updated successfully.",
+        data=build_session_response(
+            user,
+            customer,
+        ),
     )
 
 
@@ -132,12 +181,16 @@ def read_current_account(
     "/admin-check",
     summary="Verify Admin access",
 )
-def admin_access_check(current_user: AdminUser):
+def admin_access_check(
+    current_user: AdminUser,
+):
     """Return success when the current user is an Admin."""
 
     return success_response(
         message="Admin permission confirmed.",
-        data={"user_id": current_user.id},
+        data={
+            "user_id": current_user.id,
+        },
     )
 
 
@@ -145,10 +198,14 @@ def admin_access_check(current_user: AdminUser):
     "/staff-check",
     summary="Verify Staff or Admin access",
 )
-def staff_access_check(current_user: StaffUser):
+def staff_access_check(
+    current_user: StaffUser,
+):
     """Return success for Staff and Admin users."""
 
     return success_response(
         message="Staff permission confirmed.",
-        data={"user_id": current_user.id},
+        data={
+            "user_id": current_user.id,
+        },
     )

@@ -74,3 +74,14 @@ desktop.ini
 *.log
 *.tmp
 *.temp
+# Local duplicate project folders
+/-lazybites-restaurant-management-system/
+/restaurant-management-system/
+
+# Local generated images
+/ChatGPT Image Jul 21, 2026, 09_03_34 PM.png
+/ChatGPT Image Jul 27, 2026, 05_35_44 PM.png
+
+# Local verification script copies
+/backend/verify-project.ps1
+/docs/verify-project.ps1

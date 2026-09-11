@@ -91,7 +91,7 @@ def get_order(
 
 
 def calculate_order_subtotal(order: Order) -> Decimal:
-    """Calculate the subtotal using stored order-item totals."""
+    """Calculate subtotal using stored order-item totals."""
 
     subtotal = sum(
         (
@@ -107,7 +107,9 @@ def calculate_order_subtotal(order: Order) -> Decimal:
 def generate_order_number(database: Session) -> str:
     """Generate a readable unique order number."""
 
-    date_part = datetime.now(timezone.utc).strftime("%Y%m%d")
+    date_part = datetime.now(timezone.utc).strftime(
+        "%Y%m%d"
+    )
 
     for _ in range(10):
         order_number = (
@@ -158,11 +160,19 @@ def validate_table(
     if table_id is None:
         return None
 
-    dining_table = database.get(DiningTable, table_id)
+    dining_table = database.get(
+        DiningTable,
+        table_id,
+    )
 
-    if dining_table is None or not dining_table.is_active:
+    if (
+        dining_table is None
+        or not dining_table.is_active
+    ):
         raise AppException(
-            message="The selected dining table was not found.",
+            message=(
+                "The selected dining table was not found."
+            ),
             status_code=404,
         )
 
@@ -185,7 +195,9 @@ def validate_reservation(
 
     if reservation is None:
         raise AppException(
-            message="The selected reservation was not found.",
+            message=(
+                "The selected reservation was not found."
+            ),
             status_code=404,
         )
 
@@ -201,15 +213,21 @@ def validate_reservation(
             status_code=409,
         )
 
-    existing_order = database.scalar(
-        select(Order.id).where(
-            Order.reservation_id == reservation.id
+    billed_order_id = database.scalar(
+        select(Order.id)
+        .where(
+            Order.reservation_id == reservation.id,
+            Order.invoice_id.is_not(None),
         )
+        .limit(1)
     )
 
-    if existing_order is not None:
+    if billed_order_id is not None:
         raise AppException(
-            message="This reservation already has an order.",
+            message=(
+                "This reservation has already been billed. "
+                "New orders cannot be added to it."
+            ),
             status_code=409,
         )
 
@@ -226,7 +244,10 @@ def validate_order_type(
         and order_data.table_id is None
     ):
         raise AppException(
-            message="A dining table is required for a dine-in order.",
+            message=(
+                "A dining table is required for a "
+                "dine-in order."
+            ),
             status_code=400,
         )
 
@@ -306,7 +327,9 @@ def load_order_menu_items(
         .where(MenuItem.id.in_(item_ids))
     )
 
-    menu_items = list(database.scalars(statement).all())
+    menu_items = list(
+        database.scalars(statement).all()
+    )
 
     menu_item_map = {
         menu_item.id: menu_item
@@ -315,7 +338,10 @@ def load_order_menu_items(
 
     if len(menu_item_map) != len(item_ids):
         raise AppException(
-            message="One or more selected menu items were not found.",
+            message=(
+                "One or more selected menu items "
+                "were not found."
+            ),
             status_code=404,
         )
 
@@ -323,7 +349,8 @@ def load_order_menu_items(
         if not menu_item.is_active:
             raise AppException(
                 message=(
-                    f"{menu_item.name} is currently disabled."
+                    f"{menu_item.name} is currently "
+                    "disabled."
                 ),
                 status_code=409,
             )
@@ -331,7 +358,8 @@ def load_order_menu_items(
         if not menu_item.is_available:
             raise AppException(
                 message=(
-                    f"{menu_item.name} is currently unavailable."
+                    f"{menu_item.name} is currently "
+                    "unavailable."
                 ),
                 status_code=409,
             )
@@ -410,18 +438,25 @@ def create_order(
 
     order = Order(
         order_number=generate_order_number(database),
-        customer_id=customer.id if customer else None,
-        table_id=dining_table.id if dining_table else None,
+        customer_id=(
+            customer.id if customer else None
+        ),
+        table_id=(
+            dining_table.id if dining_table else None
+        ),
         reservation_id=(
             reservation.id if reservation else None
         ),
+        invoice_id=None,
         created_by_user_id=current_user.id,
         order_type=order_data.order_type,
         status=OrderStatus.PENDING,
         special_instructions=(
             order_data.special_instructions
         ),
-        delivery_address=order_data.delivery_address,
+        delivery_address=(
+            order_data.delivery_address
+        ),
     )
 
     database.add(order)
@@ -509,7 +544,8 @@ def update_order_status(
     if new_status not in allowed_statuses:
         raise AppException(
             message=(
-                f"Order cannot move from {order.status.value} "
+                f"Order cannot move from "
+                f"{order.status.value} "
                 f"to {new_status.value}."
             ),
             status_code=409,
@@ -523,12 +559,16 @@ def update_order_status(
     if new_status == OrderStatus.CANCELLED:
         if not cancellation_reason:
             raise AppException(
-                message="A cancellation reason is required.",
+                message=(
+                    "A cancellation reason is required."
+                ),
                 status_code=400,
             )
 
         order.cancelled_at = current_time
-        order.cancellation_reason = cancellation_reason
+        order.cancellation_reason = (
+            cancellation_reason
+        )
         order.completed_at = None
 
     elif new_status == OrderStatus.COMPLETED:

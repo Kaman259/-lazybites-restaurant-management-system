@@ -33,14 +33,18 @@ def customer_statistics_subqueries():
 
     reservation_count = (
         select(func.count(Reservation.id))
-        .where(Reservation.customer_id == Customer.id)
+        .where(
+            Reservation.customer_id == Customer.id
+        )
         .correlate(Customer)
         .scalar_subquery()
     )
 
     order_count = (
         select(func.count(Order.id))
-        .where(Order.customer_id == Customer.id)
+        .where(
+            Order.customer_id == Customer.id
+        )
         .correlate(Customer)
         .scalar_subquery()
     )
@@ -55,6 +59,16 @@ def customer_statistics_subqueries():
         .scalar_subquery()
     )
 
+    customer_invoice_ids = (
+        select(Order.invoice_id)
+        .where(
+            Order.customer_id == Customer.id,
+            Order.invoice_id.is_not(None),
+        )
+        .distinct()
+        .correlate(Customer)
+    )
+
     total_paid_spending = (
         select(
             func.coalesce(
@@ -62,10 +76,10 @@ def customer_statistics_subqueries():
                 0,
             )
         )
-        .join(Order, Invoice.order_id == Order.id)
         .where(
-            Order.customer_id == Customer.id,
-            Invoice.payment_status == PaymentStatus.PAID,
+            Invoice.id.in_(customer_invoice_ids),
+            Invoice.payment_status
+            == PaymentStatus.PAID,
         )
         .correlate(Customer)
         .scalar_subquery()
@@ -101,7 +115,9 @@ def serialise_customer_summary(
         "updated_at": customer.updated_at,
         "reservation_count": reservation_count,
         "order_count": order_count,
-        "completed_order_count": completed_order_count,
+        "completed_order_count": (
+            completed_order_count
+        ),
         "total_paid_spending": money(
             total_paid_spending
         ),
@@ -124,8 +140,12 @@ def list_customers(
 
     statement = select(
         Customer,
-        reservation_count.label("reservation_count"),
-        order_count.label("order_count"),
+        reservation_count.label(
+            "reservation_count"
+        ),
+        order_count.label(
+            "order_count"
+        ),
         completed_order_count.label(
             "completed_order_count"
         ),
@@ -140,18 +160,23 @@ def list_customers(
         )
 
     if search and search.strip():
-        search_value = f"%{search.strip().lower()}%"
+        search_value = (
+            f"%{search.strip().lower()}%"
+        )
 
         statement = statement.where(
             or_(
-                func.lower(Customer.full_name).like(
-                    search_value
-                ),
-                func.lower(Customer.phone).like(
-                    search_value
-                ),
                 func.lower(
-                    func.coalesce(Customer.email, "")
+                    Customer.full_name
+                ).like(search_value),
+                func.lower(
+                    Customer.phone
+                ).like(search_value),
+                func.lower(
+                    func.coalesce(
+                        Customer.email,
+                        "",
+                    )
                 ).like(search_value),
             )
         )
@@ -180,7 +205,10 @@ def get_customer(
 ) -> Customer:
     """Return one customer."""
 
-    customer = database.get(Customer, customer_id)
+    customer = database.get(
+        Customer,
+        customer_id,
+    )
 
     if customer is None:
         raise AppException(
@@ -198,7 +226,9 @@ def ensure_unique_customer_phone(
 ) -> None:
     """Prevent duplicate customer phone records."""
 
-    statement = select(Customer.id).where(
+    statement = select(
+        Customer.id
+    ).where(
         func.lower(Customer.phone)
         == phone.strip().lower()
     )
@@ -257,7 +287,11 @@ def update_customer(
     for field_name, field_value in (
         customer_data.model_dump().items()
     ):
-        setattr(customer, field_name, field_value)
+        setattr(
+            customer,
+            field_name,
+            field_value,
+        )
 
     database.add(customer)
     database.commit()
@@ -288,7 +322,10 @@ def get_customer_detail(
 ) -> dict:
     """Return a customer with reservations and orders."""
 
-    customer = get_customer(database, customer_id)
+    customer = get_customer(
+        database,
+        customer_id,
+    )
 
     (
         reservation_count,
@@ -303,16 +340,25 @@ def get_customer_detail(
             order_count,
             completed_order_count,
             total_paid_spending,
-        ).where(Customer.id == customer.id)
+        ).where(
+            Customer.id == customer.id
+        )
     ).one()
 
     reservation_statement = (
         select(Reservation)
-        .options(joinedload(Reservation.table))
-        .where(
-            Reservation.customer_id == customer.id
+        .options(
+            joinedload(
+                Reservation.table
+            )
         )
-        .order_by(Reservation.start_time.desc())
+        .where(
+            Reservation.customer_id
+            == customer.id
+        )
+        .order_by(
+            Reservation.start_time.desc()
+        )
         .limit(20)
     )
 
@@ -324,14 +370,22 @@ def get_customer_detail(
 
     order_statement = (
         select(Order)
-        .options(joinedload(Order.invoice))
-        .where(Order.customer_id == customer.id)
-        .order_by(Order.created_at.desc())
+        .options(
+            joinedload(Order.invoice)
+        )
+        .where(
+            Order.customer_id == customer.id
+        )
+        .order_by(
+            Order.created_at.desc()
+        )
         .limit(20)
     )
 
     orders = list(
-        database.scalars(order_statement).all()
+        database.scalars(
+            order_statement
+        ).all()
     )
 
     response_data = serialise_customer_summary(
@@ -377,7 +431,9 @@ def get_customer_detail(
                 else None
             ),
             "grand_total": (
-                money(order.invoice.grand_total)
+                money(
+                    order.invoice.grand_total
+                )
                 if order.invoice
                 else None
             ),

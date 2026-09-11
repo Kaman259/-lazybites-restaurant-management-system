@@ -8,13 +8,22 @@ import Button from "../components/common/Button";
 import { useAuth } from "../context/AuthContext";
 
 export default function StaffLayout() {
-  const { user, logout } = useAuth();
+  const {
+    user,
+    logout,
+  } = useAuth();
+
   const redirect = useNavigate();
 
   const staffLinks = [
     {
       to: "/staff/dashboard",
       label: "Dashboard",
+      roles: ["ADMIN", "STAFF"],
+    },
+    {
+      to: "/staff/profile",
+      label: "Profile",
       roles: ["ADMIN", "STAFF"],
     },
     {
@@ -59,8 +68,8 @@ export default function StaffLayout() {
     },
   ];
 
-  const visibleLinks = staffLinks.filter((link) =>
-    link.roles.includes(user?.role),
+  const visibleLinks = staffLinks.filter(
+    (link) => link.roles.includes(user?.role),
   );
 
   async function handleLogout() {

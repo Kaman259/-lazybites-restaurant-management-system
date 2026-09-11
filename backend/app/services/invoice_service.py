@@ -10,9 +10,13 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.exceptions import AppException
 from app.models.invoice import Invoice
 from app.models.order import Order
-from app.models.restaurant_settings import RestaurantSettings
+from app.models.restaurant_settings import (
+    RestaurantSettings,
+)
 from app.schemas.invoice import InvoiceCreate
-from app.services.settings_service import get_restaurant_settings
+from app.services.settings_service import (
+    get_restaurant_settings,
+)
 from app.utils.enums import (
     DiscountType,
     OrderStatus,
@@ -34,18 +38,30 @@ def money(value: Decimal) -> Decimal:
 
 
 def naive_utc_now() -> datetime:
-    """Return the current UTC time for existing SQLite columns."""
+    """Return current UTC time for existing SQLite columns."""
 
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return (
+        datetime.now(timezone.utc)
+        .replace(tzinfo=None)
+    )
 
 
 def invoice_query():
     """Build the standard invoice query."""
 
     return select(Invoice).options(
-        joinedload(Invoice.order).joinedload(Order.items),
-        joinedload(Invoice.order).joinedload(Order.customer),
-        joinedload(Invoice.order).joinedload(Order.table),
+        joinedload(Invoice.orders).joinedload(
+            Order.items
+        ),
+        joinedload(Invoice.orders).joinedload(
+            Order.customer
+        ),
+        joinedload(Invoice.orders).joinedload(
+            Order.table
+        ),
+        joinedload(Invoice.orders).joinedload(
+            Order.reservation
+        ),
     )
 
 
@@ -53,14 +69,18 @@ def get_invoice(
     database: Session,
     invoice_id: int,
 ) -> Invoice:
-    """Return one invoice with its order information."""
+    """Return one invoice with all included orders."""
 
     statement = invoice_query().where(
         Invoice.id == invoice_id
     )
 
     result = database.execute(statement)
-    invoice = result.unique().scalar_one_or_none()
+
+    invoice = (
+        result.unique()
+        .scalar_one_or_none()
+    )
 
     if invoice is None:
         raise AppException(
@@ -75,15 +95,23 @@ def get_invoice_by_order(
     database: Session,
     order_id: int,
 ) -> Invoice | None:
-    """Return an invoice using its order ID."""
+    """Return the invoice linked to an order."""
 
-    statement = invoice_query().where(
-        Invoice.order_id == order_id
+    statement = (
+        invoice_query()
+        .join(
+            Order,
+            Order.invoice_id == Invoice.id,
+        )
+        .where(Order.id == order_id)
     )
 
     result = database.execute(statement)
 
-    return result.unique().scalar_one_or_none()
+    return (
+        result.unique()
+        .scalar_one_or_none()
+    )
 
 
 def list_invoices(
@@ -97,12 +125,14 @@ def list_invoices(
 
     if payment_status is not None:
         statement = statement.where(
-            Invoice.payment_status == payment_status
+            Invoice.payment_status
+            == payment_status
         )
 
     if payment_method is not None:
         statement = statement.where(
-            Invoice.payment_method == payment_method
+            Invoice.payment_method
+            == payment_method
         )
 
     statement = statement.order_by(
@@ -111,7 +141,22 @@ def list_invoices(
 
     result = database.execute(statement)
 
-    return list(result.unique().scalars().all())
+    return list(
+        result.unique()
+        .scalars()
+        .all()
+    )
+
+
+def completed_order_query():
+    """Build an order query used during billing."""
+
+    return select(Order).options(
+        joinedload(Order.items),
+        joinedload(Order.customer),
+        joinedload(Order.table),
+        joinedload(Order.reservation),
+    )
 
 
 def get_completed_order(
@@ -120,18 +165,16 @@ def get_completed_order(
 ) -> Order:
     """Return a completed order that can be invoiced."""
 
-    statement = (
-        select(Order)
-        .options(
-            joinedload(Order.items),
-            joinedload(Order.customer),
-            joinedload(Order.table),
-        )
-        .where(Order.id == order_id)
+    statement = completed_order_query().where(
+        Order.id == order_id
     )
 
     result = database.execute(statement)
-    order = result.unique().scalar_one_or_none()
+
+    order = (
+        result.unique()
+        .scalar_one_or_none()
+    )
 
     if order is None:
         raise AppException(
@@ -142,28 +185,161 @@ def get_completed_order(
     if order.status != OrderStatus.COMPLETED:
         raise AppException(
             message=(
-                "Only completed orders can be converted "
-                "into invoices."
+                "Only completed orders can be "
+                "converted into invoices."
             ),
             status_code=409,
         )
 
     if not order.items:
         raise AppException(
-            message="The selected order does not contain any items.",
+            message=(
+                "The selected order does not "
+                "contain any items."
+            ),
             status_code=409,
         )
 
     return order
 
 
+def get_reservation_orders(
+    database: Session,
+    reservation_id: int,
+) -> list[Order]:
+    """Return all orders belonging to one reservation."""
+
+    statement = (
+        completed_order_query()
+        .where(
+            Order.reservation_id == reservation_id
+        )
+        .order_by(Order.id)
+    )
+
+    result = database.execute(statement)
+
+    return list(
+        result.unique()
+        .scalars()
+        .all()
+    )
+
+
+def get_billable_orders(
+    database: Session,
+    selected_order: Order,
+) -> list[Order]:
+    """
+    Return the orders that belong on the new invoice.
+
+    Standalone orders produce a one-order invoice.
+    Reservation orders are combined into one invoice.
+    """
+
+    if selected_order.invoice_id is not None:
+        raise AppException(
+            message=(
+                "This order already has an invoice."
+            ),
+            status_code=409,
+        )
+
+    if selected_order.reservation_id is None:
+        return [selected_order]
+
+    reservation_orders = get_reservation_orders(
+        database=database,
+        reservation_id=selected_order.reservation_id,
+    )
+
+    unfinished_orders = [
+        order
+        for order in reservation_orders
+        if order.status
+        not in {
+            OrderStatus.COMPLETED,
+            OrderStatus.CANCELLED,
+        }
+    ]
+
+    if unfinished_orders:
+        raise AppException(
+            message=(
+                "This reservation still has active "
+                "orders. Complete or cancel all "
+                "remaining orders before generating "
+                "the final invoice."
+            ),
+            status_code=409,
+        )
+
+    already_billed_orders = [
+        order
+        for order in reservation_orders
+        if order.invoice_id is not None
+    ]
+
+    if already_billed_orders:
+        raise AppException(
+            message=(
+                "This reservation already has "
+                "billed orders."
+            ),
+            status_code=409,
+        )
+
+    billable_orders = [
+        order
+        for order in reservation_orders
+        if order.status == OrderStatus.COMPLETED
+    ]
+
+    if not billable_orders:
+        raise AppException(
+            message=(
+                "There are no completed orders "
+                "available for billing."
+            ),
+            status_code=409,
+        )
+
+    for order in billable_orders:
+        if not order.items:
+            raise AppException(
+                message=(
+                    f"Order {order.order_number} "
+                    "does not contain any items."
+                ),
+                status_code=409,
+            )
+
+    return billable_orders
+
+
 def calculate_subtotal(order: Order) -> Decimal:
-    """Calculate subtotal using stored order-item totals."""
+    """Calculate subtotal for one order."""
 
     subtotal = sum(
         (
-            Decimal(order_item.line_total)
-            for order_item in order.items
+            Decimal(item.line_total)
+            for item in order.items
+        ),
+        Decimal("0.00"),
+    )
+
+    return money(subtotal)
+
+
+def calculate_orders_subtotal(
+    orders: list[Order],
+) -> Decimal:
+    """Calculate subtotal across all invoice orders."""
+
+    subtotal = sum(
+        (
+            calculate_subtotal(order)
+            for order in orders
         ),
         Decimal("0.00"),
     )
@@ -203,7 +379,9 @@ def calculate_discount(
             )
 
         return money(
-            subtotal * cleaned_value / Decimal("100.00")
+            subtotal
+            * cleaned_value
+            / Decimal("100.00")
         )
 
     if discount_type == DiscountType.FIXED:
@@ -230,17 +408,27 @@ def generate_invoice_number(
 ) -> str:
     """Generate a readable unique invoice number."""
 
-    prefix = settings_record.invoice_prefix.strip().upper()
-    date_part = datetime.now(timezone.utc).strftime("%Y%m%d")
+    prefix = (
+        settings_record.invoice_prefix
+        .strip()
+        .upper()
+    )
+
+    date_part = (
+        datetime.now(timezone.utc)
+        .strftime("%Y%m%d")
+    )
 
     for _ in range(10):
         invoice_number = (
-            f"{prefix}-{date_part}-{token_hex(2).upper()}"
+            f"{prefix}-{date_part}-"
+            f"{token_hex(2).upper()}"
         )
 
         existing_id = database.scalar(
             select(Invoice.id).where(
-                Invoice.invoice_number == invoice_number
+                Invoice.invoice_number
+                == invoice_number
             )
         )
 
@@ -248,7 +436,10 @@ def generate_invoice_number(
             return invoice_number
 
     raise AppException(
-        message="An invoice number could not be generated.",
+        message=(
+            "An invoice number could not "
+            "be generated."
+        ),
         status_code=500,
     )
 
@@ -257,27 +448,25 @@ def create_invoice(
     database: Session,
     invoice_data: InvoiceCreate,
 ) -> Invoice:
-    """Create an invoice from a completed order."""
+    """Create an invoice from one or more completed orders."""
 
-    existing_invoice = get_invoice_by_order(
+    selected_order = get_completed_order(
         database=database,
         order_id=invoice_data.order_id,
     )
 
-    if existing_invoice is not None:
-        raise AppException(
-            message="This order already has an invoice.",
-            status_code=409,
-        )
-
-    order = get_completed_order(
+    billable_orders = get_billable_orders(
         database=database,
-        order_id=invoice_data.order_id,
+        selected_order=selected_order,
     )
 
-    settings_record = get_restaurant_settings(database)
+    settings_record = get_restaurant_settings(
+        database
+    )
 
-    subtotal = calculate_subtotal(order)
+    subtotal = calculate_orders_subtotal(
+        billable_orders
+    )
 
     discount_amount = calculate_discount(
         subtotal=subtotal,
@@ -290,7 +479,9 @@ def create_invoice(
     )
 
     gst_percentage = money(
-        Decimal(settings_record.default_gst_percentage)
+        Decimal(
+            settings_record.default_gst_percentage
+        )
     )
 
     gst_amount = money(
@@ -304,7 +495,6 @@ def create_invoice(
     )
 
     invoice = Invoice(
-        order_id=order.id,
         invoice_number=generate_invoice_number(
             database,
             settings_record,
@@ -326,9 +516,18 @@ def create_invoice(
     )
 
     database.add(invoice)
+    database.flush()
+
+    for order in billable_orders:
+        order.invoice_id = invoice.id
+        database.add(order)
+
     database.commit()
 
-    return get_invoice(database, invoice.id)
+    return get_invoice(
+        database,
+        invoice.id,
+    )
 
 
 def mark_invoice_paid(
@@ -338,17 +537,31 @@ def mark_invoice_paid(
 ) -> Invoice:
     """Mark an unpaid invoice as paid."""
 
-    invoice = get_invoice(database, invoice_id)
+    invoice = get_invoice(
+        database,
+        invoice_id,
+    )
 
-    if invoice.payment_status == PaymentStatus.PAID:
+    if (
+        invoice.payment_status
+        == PaymentStatus.PAID
+    ):
         raise AppException(
-            message="This invoice has already been paid.",
+            message=(
+                "This invoice has already been paid."
+            ),
             status_code=409,
         )
 
-    if invoice.payment_status == PaymentStatus.REFUNDED:
+    if (
+        invoice.payment_status
+        == PaymentStatus.REFUNDED
+    ):
         raise AppException(
-            message="A refunded invoice cannot be paid again.",
+            message=(
+                "A refunded invoice cannot "
+                "be paid again."
+            ),
             status_code=409,
         )
 
@@ -361,7 +574,10 @@ def mark_invoice_paid(
     database.add(invoice)
     database.commit()
 
-    return get_invoice(database, invoice.id)
+    return get_invoice(
+        database,
+        invoice.id,
+    )
 
 
 def refund_invoice(
@@ -371,19 +587,33 @@ def refund_invoice(
 ) -> Invoice:
     """Refund a paid invoice."""
 
-    invoice = get_invoice(database, invoice_id)
+    invoice = get_invoice(
+        database,
+        invoice_id,
+    )
 
-    if invoice.payment_status != PaymentStatus.PAID:
+    if (
+        invoice.payment_status
+        != PaymentStatus.PAID
+    ):
         raise AppException(
-            message="Only paid invoices can be refunded.",
+            message=(
+                "Only paid invoices can be refunded."
+            ),
             status_code=409,
         )
 
-    invoice.payment_status = PaymentStatus.REFUNDED
+    invoice.payment_status = (
+        PaymentStatus.REFUNDED
+    )
+
     invoice.refunded_at = naive_utc_now()
     invoice.refund_reason = refund_reason
 
     database.add(invoice)
     database.commit()
 
-    return get_invoice(database, invoice.id)
+    return get_invoice(
+        database,
+        invoice.id,
+    )

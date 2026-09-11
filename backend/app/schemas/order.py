@@ -3,7 +3,12 @@
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+)
 
 from app.utils.enums import OrderStatus, OrderType
 
@@ -13,6 +18,7 @@ class OrderItemCreate(BaseModel):
 
     menu_item_id: int = Field(gt=0)
     quantity: int = Field(ge=1, le=100)
+
     special_instruction: str | None = Field(
         default=None,
         max_length=255,
@@ -34,9 +40,20 @@ class OrderItemCreate(BaseModel):
 class OrderCreate(BaseModel):
     """Information required to create an order."""
 
-    customer_id: int | None = Field(default=None, gt=0)
-    table_id: int | None = Field(default=None, gt=0)
-    reservation_id: int | None = Field(default=None, gt=0)
+    customer_id: int | None = Field(
+        default=None,
+        gt=0,
+    )
+
+    table_id: int | None = Field(
+        default=None,
+        gt=0,
+    )
+
+    reservation_id: int | None = Field(
+        default=None,
+        gt=0,
+    )
 
     order_type: OrderType
 
@@ -144,6 +161,7 @@ class OrderResponse(BaseModel):
     customer_id: int | None
     table_id: int | None
     reservation_id: int | None
+    invoice_id: int | None
     created_by_user_id: int
 
     order_type: OrderType

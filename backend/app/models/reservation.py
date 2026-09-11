@@ -121,10 +121,9 @@ class Reservation(TimestampMixin, Base):
         foreign_keys=[created_by_user_id],
     )
 
-    order: Mapped[Order | None] = relationship(
+    orders: Mapped[list[Order]] = relationship(
         "Order",
         back_populates="reservation",
-        uselist=False,
     )
 
     __table_args__ = (
